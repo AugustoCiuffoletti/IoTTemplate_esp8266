@@ -26,11 +26,15 @@ extern "C" {
 #define PAYLOAD_LEN 70  // Recompute StaticJsonDocument size if you change this
 #define KEY_LEN 8       // as above
 #define BUFFER_LEN 300  // Better estimate need. HTTP request body size
+
+// #define UNATTENDED // Comment this to have attended operation with operator acknowledgement
+#define MASTERKEY "12345678" 
+
 HTTPClient https;
 
 // Structure associated to a key
 struct softState{
-  bool flag = false;        // flag
+  bool flag = false;        // encryption flag
 //  char payload[PAYLOAD_LEN+1] = "{'id': 'xxxxxxxxxxxxxxxxxx', 'tref': 18, 'age': 7}";     // payload
   char payload[PAYLOAD_LEN+1] = "eyJpZCI6ICJQb3N0byAzIiwgInRyZWYiOiAxOCwgImFnZSI6IDB9"; // payload base64
   char nextKey[KEY_LEN+1];  // next key
@@ -46,7 +50,7 @@ int updateState(String input) {
     return 1;
   }
   s.flag = doc[0];                // false
-  strncpy(s.payload,doc[1],sizeof(s.payload));       // "{'id': 'provaX', 'tref': 18, 'age': 7}"
+  strncpy(s.payload,doc[1],sizeof(s.payload));       // {"id": "provaX", "tref": 18, "age": 7}"
   strncpy(s.nextKey,doc[2],sizeof(s.nextKey));    // "3cb9f8b7"
 //  Serial.println("Deserialized");
   return 0;
@@ -177,7 +181,11 @@ int postValue() {
 int businessLogic() {
   //Serial.println(Base64.decodedLength(s.payload, strlen(s.payload)));
   char payload[300];
-  Base64.decode(payload, s.payload, strlen(s.payload));
+  if ( s.flag ) {
+    Base64.decode(payload, s.payload, strlen(s.payload));
+  } else {
+    sprintf(payload, "%s", s.payload);
+  }
   //payload[50]=0x0;
   Serial.print("Decoded string is: "); Serial.print("-"); Serial.print(payload); Serial.println("-");
     
@@ -204,6 +212,7 @@ int businessLogic() {
   serializeJson(doc_out, payload);
   
   Base64.encode(s.payload, payload, strlen(payload));
+  s.flag=true;
   return 0;
 }
 
@@ -222,10 +231,15 @@ void setup() {
     Serial.println("Recovering state from deep sleep");
     ESP.rtcUserMemoryRead(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   } else {
-    Serial.println("=== Restart with key generation");
-    while ( newKey() == 409 ) {
+#ifdef UNATTENDED
+    Serial.println("=== Restart from master key");
+    sprintf(s.nextKey,"%s",MASTERKEY);
+#else
+   Serial.println("=== Restart with key generation");
+   while ( newKey() == 409 ) {
       Serial.println("Existing key, try another");
     }
+#endif // UNATTENDED
   }
 }
 
@@ -237,6 +251,7 @@ void loop() {
     Serial.println("GET failed");
     delay(5000);
   }
+
   Serial.print("Next key is "); Serial.println(s.nextKey);
   businessLogic();
   postValue();
