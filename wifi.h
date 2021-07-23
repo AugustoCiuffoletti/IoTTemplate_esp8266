@@ -19,12 +19,10 @@ int joinAP(int retry){
   Serial.println();
   Serial.print("Connected as ");
   Serial.println(WiFi.localIP());
-  digitalWrite(LED_BUILTIN,LOW);
   return 0;
 }
 
-int disconnectAP(){
+void disconnectAP(){
   WiFi.disconnect();
   while (WiFi.status() == WL_CONNECTED) delay(1000);
-  digitalWrite(LED_BUILTIN,HIGH);
 }

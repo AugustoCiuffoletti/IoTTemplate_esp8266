@@ -1,3 +1,10 @@
+/*
+ * IMPORTANT: After rpogramming the device, short the A0 and RST pins (of a Wemos board)
+ * to enable the wake-up at the end of the deep-sleep period
+ * To unlock the key the operator has to create a corresponding key-value pair in the database. Refer to the
+ * kviotApp to this purpose.
+ */
+
 #include "limits.h"            // random key generation
 #include "wifi.h"
 
@@ -10,12 +17,13 @@ extern "C" {
 #include <ESP8266HTTPClient.h> // https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient
 #include <WiFiClientSecureBearSSL.h> // https://arduino-esp8266.readthedocs.io/en/laMONGODB/esp8266wifi/bearssl-client-secure-class.html
 #include <ArduinoJson.h>
-#include <base64.h>
+#include <Base64.h>
 
 #define VERSIONE "0.0"
-#define SERVER "192.168.113.181"
-// #define OP_CHECK
-#define PAYLOAD_LEN 50  // Recompute StaticJsonDocument size if you change this
+// #define SERVER "192.168.113.181"
+#define SERVER "10.0.113.1"
+#define OP_CHECK        // Comment htis for automatic key-value pair creation (insecure)
+#define PAYLOAD_LEN 70  // Recompute StaticJsonDocument size if you change this
 #define KEY_LEN 8       // as above
 #define BUFFER_LEN 300  // Better estimate need. HTTP request body size
 HTTPClient https;
@@ -23,13 +31,13 @@ HTTPClient https;
 // Structure associated to a key
 struct softState{
   bool flag = false;        // flag
-  char payload[PAYLOAD_LEN+1] = "{'id': 'xxxxxxxxxxxxxxxxxx', 'tref': 18, 'age': 7}";     // payload
+//  char payload[PAYLOAD_LEN+1] = "{'id': 'xxxxxxxxxxxxxxxxxx', 'tref': 18, 'age': 7}";     // payload
+  char payload[PAYLOAD_LEN+1] = "eyJpZCI6ICJQb3N0byAzIiwgInRyZWYiOiAxOCwgImFnZSI6IDB9"; // payload base64
   char nextKey[KEY_LEN+1];  // next key
 } s;
 
 int updateState(String input) {
 // From https://arduinojson.org/v6/assistant/
-//  Serial.println(input);
   StaticJsonDocument<192> doc;
   DeserializationError error = deserializeJson(doc, input);
   if (error) {
@@ -54,7 +62,7 @@ int newKey() {
   // generate a new key
   unsigned long int nkey = random(ULONG_MAX);
 //  nkey=0xd6a9a651;  // test only
-  sprintf(s.nextKey,"%8x",nkey);
+  sprintf(s.nextKey,"%08x",nkey);
   Serial.print("New key is "); Serial.println(s.nextKey);
   // build URL for the new key
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
@@ -103,30 +111,6 @@ int newKey() {
   #endif OP_CHECK
   https.end();
   return NULL;
-}
-
-int businessLogic() {
-  char payload[PAYLOAD_LEN];
-  Serial.println(s.payload);
-//  base64_encode(char *payload, char *s.payload, sizeof(s.payload));
-/*  
-  StaticJsonDocument<96> doc;
-  DeserializationError error = deserializeJson(doc, s.payload);
-  if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
-    return 1;
-  }
-  const char* id = doc["id"]; // "xxxxxxxxxxxxxxxx"
-  int tref = doc["tref"]; // 18
-  int age = doc["age"]; // 0
-//  StaticJsonDocument<96> doc;
-  doc["id"] = "xxxxxxxxxxxxxxxx";
-  doc["tref"] = 18;
-  doc["age"] = age+1;
-  serializeJson(doc, s.payload);
-*/
-  return 0;
 }
 
 int getValue() {
@@ -190,11 +174,48 @@ int postValue() {
   return NULL;
 }
 
+int businessLogic() {
+  //Serial.println(Base64.decodedLength(s.payload, strlen(s.payload)));
+  char payload[300];
+  Base64.decode(payload, s.payload, strlen(s.payload));
+  //payload[50]=0x0;
+  Serial.print("Decoded string is: "); Serial.print("-"); Serial.print(payload); Serial.println("-");
+    
+  StaticJsonDocument<96> doc_in;
+  DeserializationError error = deserializeJson(doc_in, payload);
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return 1;
+  }
+  char id[21];
+  strncpy(id, doc_in["id"], strlen(id)); // "xxxxxxxxxxxxxxxx"
+  int tref = doc_in["tref"]; // 18
+  int age = doc_in["age"]; // 0
+/*
+ * Business logic goes here
+ */
+  age++; 
+// End of business logic
+  StaticJsonDocument<96> doc_out;
+  doc_out["id"]=id;
+  doc_out["tref"] = 18;
+  doc_out["age"] = age;
+  serializeJson(doc_out, payload);
+  
+  Base64.encode(s.payload, payload, strlen(payload));
+  return 0;
+}
+
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(9600); // To bluetooth device
   Serial.print("\n========\nDeep-sleep recovery demo: V");
   Serial.println(VERSIONE);
   Serial.print("========\n");
+  
+  Serial.print("Access the WiFi AP");
+  if ( joinAP(100) ) ESP.deepSleep(10*1E6);
 
   Serial.println(ESP.getResetReason());
   if ( resetInfo.reason == REASON_DEEP_SLEEP_AWAKE ) {
@@ -202,18 +223,17 @@ void setup() {
     ESP.rtcUserMemoryRead(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   } else {
     Serial.println("=== Restart with key generation");
-    Serial.println("===");
-    Serial.print("Access the WiFi AP");
-    if ( joinAP(100) ) ESP.deepSleep(10*1E6);
     while ( newKey() == 409 ) {
       Serial.println("Existing key, try another");
     }
-    disconnectAP(); 
   }
+}
 
-  Serial.print("Access the WiFi AP");
-  if ( joinAP(100) ) ESP.deepSleep(10*1E6);
+void loop() {
   while ( getValue() ) {
+    if ( resetInfo.reason != REASON_DEEP_SLEEP_AWAKE ) {
+      Serial1.print("*");Serial1.print(s.nextKey);      // send key value to Bluetooth transmitter
+    }
     Serial.println("GET failed");
     delay(5000);
   }
@@ -222,12 +242,9 @@ void setup() {
   postValue();
   disconnectAP();
   Serial.print("\n==== SLEEPING ====\n\n");
-
+  
   ESP.rtcUserMemoryWrite(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   
   ESP.deepSleep(10*1E6);
 //  delay(10000);
-}
-
-void loop() {
 }
