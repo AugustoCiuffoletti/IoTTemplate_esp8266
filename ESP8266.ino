@@ -27,8 +27,7 @@ extern "C" {
 #define KEY_LEN 8       // as above
 #define BUFFER_LEN 300  // Better estimate need. HTTP request body size
 
-// #define UNATTENDED // Comment this to have attended operation with operator acknowledgement
-#define MASTERKEY "12345678" 
+// #define MASTERKEY "12345678"  // Comment this to have attended operation with operator acknowledgement
 
 HTTPClient https;
 
@@ -231,7 +230,7 @@ void setup() {
     Serial.println("Recovering state from deep sleep");
     ESP.rtcUserMemoryRead(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   } else {
-#ifdef UNATTENDED
+#ifdef MASTERKEY
     Serial.println("=== Restart from master key");
     sprintf(s.nextKey,"%s",MASTERKEY);
 #else
@@ -239,7 +238,7 @@ void setup() {
    while ( newKey() == 409 ) {
       Serial.println("Existing key, try another");
     }
-#endif // UNATTENDED
+#endif // MASTERKEY
   }
 }
 
