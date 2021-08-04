@@ -4,7 +4,9 @@
 WiFiClient client;
 
 int joinAP(int retry){
-  Serial.print("\nConnecting");
+  char ipaddr[20];
+  IPAddress ip;
+  logline(0, 1, "Connecting");
   WiFi.mode(WIFI_STA);
   WiFi.begin(MYSSID, MYPASSWD);
   while ( ( WiFi.status() != WL_CONNECTED ) && ((retry--) > 0) )
@@ -12,13 +14,14 @@ int joinAP(int retry){
     delay(500);
     Serial.print(".");
   }
+  Serial.println();
   if ( WiFi.status() != WL_CONNECTED ) {
-    Serial.println("Can't connect to AP");
+    logline(0, 1, "Can't connect to AP");
     return 1;
   }
-  Serial.println();
-  Serial.print("Connected as ");
-  Serial.println(WiFi.localIP());
+  ip=WiFi.localIP();
+  sprintf(ipaddr, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+  logline(0, 2, "Connected as ", ipaddr);
   return 0;
 }
 

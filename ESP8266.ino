@@ -4,9 +4,13 @@
  * To unlock the key the operator has to create a corresponding key-value pair in the database. Refer to the
  * kviotApp to this purpose.
  */
+#define DEBUG
 
 #include "limits.h"            // random key generation
+#include "stdarg.h"
+#include "logging.h"
 #include "wifi.h"
+
 
 extern "C" {
   #include "user_interface.h"
@@ -26,8 +30,7 @@ extern "C" {
 #define PAYLOAD_LEN 70  // Recompute StaticJsonDocument size if you change this
 #define KEY_LEN 8       // as above
 #define BUFFER_LEN 300  // Better estimate need. HTTP request body size
-
-// #define MASTERKEY "12345678"  // Comment this to have attended operation with operator acknowledgement
+#define MASTERKEY "12345678"  // Comment this to have attended operation with operator acknowledgement
 
 HTTPClient https;
 
@@ -44,8 +47,7 @@ int updateState(String input) {
   StaticJsonDocument<192> doc;
   DeserializationError error = deserializeJson(doc, input);
   if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
+    logline(0, 2, F("deserializeJson() failed: "), error.f_str());
     return 1;
   }
   s.flag = doc[0];                // false
@@ -61,12 +63,12 @@ int newKey() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  Serial.println("=== PUT a new key in DB");
+  logline(0, 1, "=== PUT a new key in DB");
   // generate a new key
   unsigned long int nkey = random(ULONG_MAX);
 //  nkey=0xd6a9a651;  // test only
   sprintf(s.nextKey,"%08x",nkey);
-  Serial.print("New key is "); Serial.println(s.nextKey);
+  logline(0, 2, "New key is ", s.nextKey);
   // build URL for the new key
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
   Serial.println(endpoint);
@@ -75,16 +77,16 @@ int newKey() {
   if (https.begin(client, endpoint)) {
     int x = https.GET();
     if(x == 200) {
-      Serial.println("Duplicated key: try another");
+      logline(0, 1, "Duplicated key: try another");
       updateState(https.getString());
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return 1;
     } else {
-      Serial.print("Available key is: ");Serial.println(s.nextKey);
-      Serial.println("Waiting for OK from operator");
+      logline(0, 2, "Available key is: ", s.nextKey);
+      logline(0, 1, "Waiting for OK from operator");
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return 0;
     }
   }
@@ -97,17 +99,17 @@ int newKey() {
     doc.add(s.nextKey);
     serializeJson(doc, msgbuffer);
     https.addHeader("Content-Type", "application/json");
-    Serial.print(s.nextKey); Serial.print(" -> "); Serial.println(msgbuffer);
+    logline(0, 3, s.nextKey, " -> ", msgbuffer);
     int x = https.PUT(msgbuffer);
     if(x == 200) {
-      Serial.println("Success");
+      logline(0, 1, "Success");
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return 0;
     } else {
-      Serial.println("Problem creating a new key-value pair. HTTP error code " + String(x));
+      logline(0, 1, "Problem creating a new key-value pair. HTTP error code " + String(x));
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return x;
     }
   }
@@ -121,21 +123,21 @@ int getValue() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  Serial.println("=== GET a value from DB");
+  logline(0, 1, "=== GET a value from DB");
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
-  Serial.println(endpoint);
+  logline(0, 1, endpoint);
   if (https.begin(client, endpoint)) {
     int x = https.GET();
     if(x == 200) {
-      Serial.print(s.nextKey); Serial.print(" -> "); Serial.println(https.getString());
       updateState(https.getString());
+      logline(0, 3, s.nextKey, " -> ", s.payload);
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return 0;
     } else {
-      Serial.println("Problem getting softState. HTTP error code " + String(x));
+      logline(0, 2, "Problem getting softState. HTTP error code ", x);
       https.end();
-      Serial.println("===");
+      logline(0, 1,"===");
       return 1;
     }
   }
@@ -149,25 +151,25 @@ int postValue() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  Serial.println("=== POST a value to DB");
+  logline(0, 1,"=== POST a value to DB");
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
-  Serial.println(endpoint);
+  logline(0, 1, endpoint);
   if (https.begin(client, endpoint)) { 
     StaticJsonDocument<192> doc;
     doc.add(s.flag);
     doc.add(s.payload);
     doc.add(s.nextKey);
     serializeJson(doc, msgbuffer);
-    Serial.print(s.nextKey); Serial.print(" -> "); Serial.println(msgbuffer);
+    logline(0, 3, s.nextKey, " -> ", msgbuffer);
     https.addHeader("Content-Type", "application/json");
     int x = https.POST(msgbuffer);
     if(x == 200) {
-      Serial.println("Success");
+      logline(0, 1, "Success");
       https.end();
-      Serial.println("===");
+      logline(0, 1, "===");
       return 0;
     } else {
-      Serial.println("Problem posting softState. HTTP error code " + String(x));
+      logline(0, 1,"Problem posting softState. HTTP error code ", x);
       https.end();
       Serial.println("===");
       return 1;
@@ -186,7 +188,7 @@ int businessLogic() {
     sprintf(payload, "%s", s.payload);
   }
   //payload[50]=0x0;
-  Serial.print("Decoded string is: "); Serial.print("-"); Serial.print(payload); Serial.println("-");
+  logline(0, 4,"JSON payload is: ", "-", payload, "-");
     
   StaticJsonDocument<96> doc_in;
   DeserializationError error = deserializeJson(doc_in, payload);
@@ -221,22 +223,22 @@ void setup() {
   Serial.print("\n========\nDeep-sleep recovery demo: V");
   Serial.println(VERSIONE);
   Serial.print("========\n");
-  
-  Serial.print("Access the WiFi AP");
+
+  logline(0, 1, "Access the WiFi AP");
   if ( joinAP(100) ) ESP.deepSleep(10*1E6);
 
-  Serial.println(ESP.getResetReason());
+  logstring(0, ESP.getResetReason());
   if ( resetInfo.reason == REASON_DEEP_SLEEP_AWAKE ) {
-    Serial.println("Recovering state from deep sleep");
+    logline(0, 1, "Recovering state from persistent SRAM");
     ESP.rtcUserMemoryRead(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   } else {
 #ifdef MASTERKEY
-    Serial.println("=== Restart from master key");
-    sprintf(s.nextKey,"%s",MASTERKEY);
+   logline(0, 1, "=== Restart from master key");
+   sprintf(s.nextKey,"%s",MASTERKEY);
 #else
-   Serial.println("=== Restart with key generation");
+   logline(0, 1, "=== Restart with key generation");
    while ( newKey() == 409 ) {
-      Serial.println("Existing key, try another");
+      logline(0, 1, "Existing key, try another");
     }
 #endif // MASTERKEY
   }
@@ -247,15 +249,15 @@ void loop() {
     if ( resetInfo.reason != REASON_DEEP_SLEEP_AWAKE ) {
       Serial1.print("*");Serial1.print(s.nextKey);      // send key value to Bluetooth transmitter
     }
-    Serial.println("GET failed");
+    logline(0, 1, "GET failed");
     delay(5000);
   }
 
-  Serial.print("Next key is "); Serial.println(s.nextKey);
+  logline(0, 2, "Next key is ", s.nextKey);
   businessLogic();
   postValue();
   disconnectAP();
-  Serial.print("\n==== SLEEPING ====\n\n");
+  logline(0, 1, "==== SLEEPING ====\n\n");
   
   ESP.rtcUserMemoryWrite(0, (uint32_t*) &s.nextKey, sizeof(s.nextKey));
   
