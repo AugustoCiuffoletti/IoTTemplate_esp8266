@@ -38,7 +38,7 @@ HTTPClient https;
 struct softState{
   bool flag = false;        // encryption flag
 //  char payload[PAYLOAD_LEN+1] = "{'id': 'xxxxxxxxxxxxxxxxxx', 'tref': 18, 'age': 7}";     // payload
-  char payload[PAYLOAD_LEN+1] = "eyJpZCI6ICJQb3N0byAzIiwgInRyZWYiOiAxOCwgImFnZSI6IDB9"; // payload base64
+  char payload[PAYLOAD_LEN+1] = "eydpZCc6ICdTaXRlIDMnLCAndHJlZic6IDE4LCAnYWdlJzogMH0="; // payload base64
   char nextKey[KEY_LEN+1];  // next key
 } s;
 
@@ -63,7 +63,7 @@ int newKey() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  logline(0, 1, "=== PUT a new key in DB");
+  logline(0, 1, "=== HEAD of a new key in DB");
   // generate a new key
   unsigned long int nkey = random(ULONG_MAX);
 //  nkey=0xd6a9a651;  // test only
@@ -75,7 +75,9 @@ int newKey() {
   #ifdef OP_CHECK  // This is the secure protocol under operator control
   // Check the generated key is available
   if (https.begin(client, endpoint)) {
-    int x = https.GET();
+    unsigned char c='x';
+    unsigned char *d = &c;
+    int x = https.sendRequest("HEAD",d,1);
     if(x == 200) {
       logline(0, 1, "Duplicated key: try another");
       updateState(https.getString());
@@ -84,13 +86,17 @@ int newKey() {
       return 1;
     } else {
       logline(0, 2, "Available key is: ", s.nextKey);
-      logline(0, 1, "Waiting for OK from operator");
+      logline(0, 1, "Waiting for PUT from operator");
       https.end();
       logline(0, 1, "===");
+      while ( https.sendRequest("HEAD",d,1) != 200 ) {
+        logline(0, 1, "Not yet created");
+        delay(5000);
+      }
       return 0;
     }
   }
-  #else           // This is the autonomous protocol
+  #else           // This is the autonomous protocol that uses the masterkey
   // load the new key-value pair
   if (https.begin(client, endpoint)) {
     StaticJsonDocument<192> doc;
@@ -123,14 +129,14 @@ int getValue() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  logline(0, 1, "=== GET a value from DB");
+  logline(0, 1, "<T2> GET a value from DB");
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
   logline(0, 1, endpoint);
   if (https.begin(client, endpoint)) {
     int x = https.GET();
     if(x == 200) {
       updateState(https.getString());
-      logline(0, 3, s.nextKey, " -> ", s.payload);
+      logline(0, 4, "<T3> ", s.nextKey, " -> ", s.payload);
       https.end();
       logline(0, 1, "===");
       return 0;
@@ -151,7 +157,7 @@ int postValue() {
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(10*1E3);    // set timeout to 10 seconds
-  logline(0, 1,"=== POST a value to DB");
+  logline(0, 1,"<T4> POST a value to DB");
   sprintf(endpoint,"https://%s/%s",SERVER,s.nextKey);
   logline(0, 1, endpoint);
   if (https.begin(client, endpoint)) { 
@@ -164,7 +170,7 @@ int postValue() {
     https.addHeader("Content-Type", "application/json");
     int x = https.POST(msgbuffer);
     if(x == 200) {
-      logline(0, 1, "Success");
+      logline(0, 2, "<T5>", " Success");
       https.end();
       logline(0, 1, "===");
       return 0;
@@ -224,7 +230,7 @@ void setup() {
   Serial.println(VERSIONE);
   Serial.print("========\n");
 
-  logline(0, 1, "Access the WiFi AP");
+  logline(0, 1, "<T0> Access the WiFi AP");
   if ( joinAP(100) ) ESP.deepSleep(10*1E6);
 
   logstring(0, ESP.getResetReason());
@@ -237,7 +243,7 @@ void setup() {
    sprintf(s.nextKey,"%s",MASTERKEY);
 #else
    logline(0, 1, "=== Restart with key generation");
-   while ( newKey() == 409 ) {
+   while ( newKey() == 200 ) {
       logline(0, 1, "Existing key, try another");
     }
 #endif // MASTERKEY
